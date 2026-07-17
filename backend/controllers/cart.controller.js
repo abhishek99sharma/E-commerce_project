@@ -1,13 +1,35 @@
-export const addToCart = (req, res) => {
+import Product from '../models/product.model.js'
+
+export const getCartProducts = async (req, res) => {
+    try {
+        const productIds = req.user.cartItems.map(item => item.product);
+        const products = await Product.find({ _id: { $in: productIds }});
+        const cartItems = products.map(product => {
+            const item = req.user.cartItems.find(cartItem =>
+                cartItem.product.toString() === product._id.toString()
+            );
+            return {
+                ...product.toJSON(),
+                quantity: item.quantity
+            };
+        });
+        res.status(200).json(cartItems);
+    } catch (error) {
+        console.error("Error in getCartProducts:", error.message);
+        res.status(500).json({message: "Internal Server Error",error: error.message});
+    }
+};
+
+export const addToCart = async (req, res) => {
     try{
         const{productId}= req.body;
         const user = req.user;
 
-        const existingItem = user.cartItem.find(item => item.product.toString() === productId);
+        const existingItem = user.cartItems.find(item => item.product.toString() === productId);
         if(existingItem){
             existingItem.quantity += 1;
         }else{
-            user.cartItem.push({product: productId, quantity: 1});
+            user.cartItems.push({product: productId, quantity: 1});
         }
         await user.save();
         res.status(200).json({ message: "Item added to cart" });
@@ -22,9 +44,11 @@ export const removeFromCart = async (req, res) => {
         const { productId } = req.body;
         const user = req.user;
         if(!productId){
-            user.cartItem = [];
+            return res.status(400).json({
+                message: "Product ID is required"
+            });
         }else{
-            user.cartItem = user.cartItem.filter((item) => item.product.toString() !== productId);
+            user.cartItems = user.cartItems.filter((item) => item.product.toString() !== productId);
         }
         await user.save();
         res.status(200).json({ message: "Item removed from cart" });
@@ -39,17 +63,17 @@ export const updateQuantity = async (req, res) => {
         const { id:productId } = req.params;
         const { quantity } = req.body;
         const user = req.user; 
-        const existingItem = user.cartItem.find((item) => item.product.toString()===productId);
+        const existingItem = user.cartItems.find((item) => item.product.toString()===productId);
 
         if(existingItem){
             if(quantity===0){
-                user.cartItem = user.cartItem.filter((item) => item.product.toString() !== productId);
+                user.cartItems = user.cartItems.filter((item) => item.product.toString() !== productId);
                 await user.save();
-                return res.json(user.cartItem)
+                return res.json(user.cartItems)
             }
             existingItem.quantity=quantity;
             await user.save();
-            res.json(user.cartItem);
+            res.json(user.cartItems);
         }else{
             res.status(404).json({message: "product not found"});
         }

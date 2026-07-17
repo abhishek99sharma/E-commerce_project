@@ -119,15 +119,10 @@ export const refreshToken = async (req,res) =>{
     }
 }
 
-// export const getProfile = async (req,res) =>{
-//     try{
-//         const userId = req.userId;
-//         const user = await User.findById(userId).select("-password");
-//         if(!user){
-//             return res.status(404).json({ message: "User not found" });
-//         }
-//         res.status(200).json({ user });
-//     }catch(error){
-//         res.status(500).json({ message: "Error fetching profile", error: error.message });
-//     }
-// }
+ export const getProfile = async (req,res) =>{
+      try{
+        res.json(req.user);
+    }catch(error){
+        res.status(500).json({ message: "Error fetching profile", error: error.message });
+    }
+ }

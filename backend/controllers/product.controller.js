@@ -13,6 +13,7 @@ export const getAllProducts = async (req, res) => {
 }
 
 export const getFeaturedProducts = async (req, res) => {
+    console.log("GET /api/products/featured called");
     try {
         let featuredProducts = await redis.get("featuredProducts");
         if(featuredProducts){
@@ -37,11 +38,19 @@ export const createProduct = async (req, res) => {
         const { name, description, price, image, category } = req.body;
         let cloudinaryResponse = null;
         if(image){
-            cloudinaryResponse = await cloudinary.uploader.upload(image, {
-                folder: "products",
-                use_filename: true,
-                unique_filename: false
-            });
+          cloudinaryResponse = await cloudinary.uploader.upload(image, {
+            folder: "products",
+            use_filename: true,
+            unique_filename: false,
+            transformation: [
+                {
+                    width: 1000,
+                    crop: "limit",
+                    quality: "auto",
+                    fetch_format: "auto",
+                },
+            ],
+        });
         }
         const product = await Product.create({
             name,
@@ -73,7 +82,11 @@ export const deleteProduct = async (req, res) => {
             console.error(`Error deleting image with public ID ${publicId} from Cloudinary:`, error);
             }
         }
-        await product.findByIdAndDelete(req.params.id);
+        await Product.findByIdAndDelete(req.params.id);
+         if (product.isFeatured) {
+         await updateFeaturedProductsCache();
+         }
+
         res.status(200).json({ message: "Product deleted successfully" });
     }catch (error) {
         console.log("error in deleteProduct controller", error.message);

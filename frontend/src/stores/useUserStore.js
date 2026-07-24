@@ -17,24 +17,38 @@ export const useUserStore = create((set, get) => ({
 
 		try {
 			const res = await axios.post("/auth/signup", { name, email, password });
-			set({ user: res.data.user, loading: false });
+			set({ user: res.data, loading: false });
 		} catch (error) {
 			set({ loading: false });
 			toast.error(error.response.data.message || "An error occurred");
 		}
 	},
 	login: async (email, password) => {
-		set({ loading: true });
+    set({ loading: true });
 
-		try {
-			const res = await axios.post("/auth/login", { email, password });
+    try {
+        const res = await axios.post("/auth/login", { email, password });
 
-			set({ user: res.data.user, loading: false });
-		} catch (error) {
-			set({ loading: false });
-			toast.error(error.response.data.message || "An error occurred");
-		}
-	},
+        set({
+            user: res.data.user,
+        });
+
+        toast.success(res.data.message);
+        return true;
+    } catch (error) {
+        set({
+            user: null,
+        });
+
+        toast.error(
+            error.response?.data?.message || "Invalid email or password"
+        );
+
+        return false;
+    } finally {
+        set({ loading: false });
+    }
+},
 
 	logout: async () => {
 		try {
@@ -49,7 +63,6 @@ export const useUserStore = create((set, get) => ({
 		set({ checkingAuth: true });
 		try {
 			const response = await axios.get("/auth/profile");
-		console.log("PROFILE RESPONSE:", response);	
 			set({ user: response.data, checkingAuth: false });
 		} catch (error) {
 			console.log(error.message);
@@ -74,30 +87,35 @@ export const useUserStore = create((set, get) => ({
 }));
 
 
+
+// Axios interceptor for token refresh
 let refreshPromise = null;
 
 axios.interceptors.response.use(
 	(response) => response,
 	async (error) => {
 		const originalRequest = error.config;
-		if (error.response?.status === 401 && !originalRequest._retry) {
+		if (error.response?.status === 401 &&
+  			!originalRequest._retry &&
+  			!originalRequest.url.includes("/auth/login") &&
+  			!originalRequest.url.includes("/auth/signup") &&
+  			!originalRequest.url.includes("/auth/refresh-token")) {
 			originalRequest._retry = true;
 
 			try {
-				// If a refresh is already in progress, wait for it to complete
+			
 				if (refreshPromise) {
 					await refreshPromise;
 					return axios(originalRequest);
 				}
 
-				// Start a new refresh process
 				refreshPromise = useUserStore.getState().refreshToken();
 				await refreshPromise;
 				refreshPromise = null;
 
 				return axios(originalRequest);
 			} catch (refreshError) {
-				// If refresh fails, redirect to login or handle as needed
+				
 				useUserStore.getState().logout();
 				return Promise.reject(refreshError);
 			}

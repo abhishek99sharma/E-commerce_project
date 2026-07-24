@@ -1,6 +1,7 @@
 import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
+import path from "path";
 
 import authRoutes from "./routes/auth.route.js";
 import productRoutes from "./routes/product.route.js";
@@ -26,7 +27,7 @@ app.use(
   })
 );
 
-const _dirname = path.resolve();
+const __dirname = path.resolve();
 
 app.use(express.json({limit: "10mb"}));
 app.use(cookieParser());

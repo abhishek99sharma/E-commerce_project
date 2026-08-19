@@ -1,11 +1,25 @@
+import { useEffect } from "react";
+import axios from "../lib/axios";
 import toast from "react-hot-toast";
 import { ShoppingCart } from "lucide-react";
 import { useUserStore } from "../stores/useUserStore";
 import { useCartStore } from "../stores/useCartStore";
 
+
+
+
 const ProductCard = ({ product }) => {
 	const { user } = useUserStore();
 	const { addToCart } = useCartStore();
+
+	useEffect(() => {
+		if (!user || !product?._id) return;
+
+		axios.post("/products/activity", {
+			productId: product._id,
+			type: "view",
+		}).catch(() => {});
+	}, [user, product?._id]);
 
 	const optimizedImage = product.image
 	? product.image.replace(
@@ -27,7 +41,7 @@ const ProductCard = ({ product }) => {
 	return (
 		<div className='flex w-full relative flex-col overflow-hidden rounded-lg border border-gray-700 shadow-lg'>
 			<div className='relative mx-3 mt-3 flex h-60 overflow-hidden rounded-xl'>
-				<img className='object-cover w-full' src={product.image} alt='product image' />
+				<img className='object-cover w-full' src={optimizedImage} alt={product.name}/>
 				<div className='absolute inset-0 bg-black/20' />
 			</div>
 

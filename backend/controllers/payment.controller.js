@@ -1,6 +1,7 @@
 import Coupon from "../models/coupon.model.js";
 import Order from "../models/order.model.js";
 import { stripe } from "../lib/stripe.js";
+import UserActivity from "../models/userActivity.model.js";
 
 export const createCheckoutSession = async (req, res) => {
 	try {
@@ -91,8 +92,16 @@ export const checkoutSuccess = async (req, res) => {
 				);
 			}
 
-			// create a new Order
+			
 			const products = JSON.parse(session.metadata.products);
+			for (const product of products) {
+		await UserActivity.create({
+			user: session.metadata.userId,
+			product: product.id,
+			type: "purchase",
+		});
+	}
+	// create a new Order
 			const newOrder = new Order({
 				user: session.metadata.userId,
 				products: products.map((product) => ({
@@ -105,7 +114,19 @@ export const checkoutSuccess = async (req, res) => {
 			});
 
 			await newOrder.save();
+			await Promise.all(
+	products.map((product) =>
+		UserActivity.create({
+			user: session.metadata.userId,
+			product: product.id,
+			type: "purchase",
+		})
+	)
+);
 
+await redis.del(
+	`recommendations:${session.metadata.userId}`
+);
 			res.status(200).json({
 				success: true,
 				message: "Payment successful, order created, and coupon deactivated if used.",

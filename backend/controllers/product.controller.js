@@ -1,6 +1,8 @@
 import {redis} from "../lib/redis.js";
 import cloudinary from "../lib/cloudinary.js";
 import Product from "../models/product.model.js";
+import UserActivity from "../models/userActivity.model.js";
+import ai from "../lib/gemini.js";
 
 export const getAllProducts = async (req, res) => {
     try {
@@ -94,29 +96,205 @@ export const deleteProduct = async (req, res) => {
     }
 }
 
-export const getRecommendedProducts = async (req, res) => {
-    try {
-        const products = await Product.aggregate([
-            {
-             $sample: { size: 5 }
-            },
-            {
-             $project: {
-                _id: 1,
-                name: 1,
-                description: 1, 
-                price: 1, 
-                image: 1, 
-             }  
-            }
-        ]);
-        res.status(200).json({ products });
-    }catch (error) {
-        console.error("Error fetching recommended products:", error);
-        res.status(500).json({ message: "Error fetching recommended products", error: error.message });
-    }
-}
+export const trackProductActivity = async (req, res) => {
+	try {
+		const { productId, type } = req.body;
 
+		if (!productId || !type) {
+			return res.status(400).json({
+				message: "Product ID and activity type are required",
+			});
+		}
+
+		if (!["view", "cart", "purchase"].includes(type)) {
+			return res.status(400).json({
+				message: "Invalid activity type",
+			});
+		}
+
+		const recentActivity = await UserActivity.findOne({
+			user: req.user._id,
+			product: productId,
+			type,
+			createdAt: { $gte: new Date(Date.now() - 60 * 60 * 1000) },
+		});
+
+		if (!recentActivity) {
+			await UserActivity.create({
+				user: req.user._id,
+				product: productId,
+				type,
+			});
+
+			await redis.del(`recommendations:${req.user._id}`);
+		}
+
+		res.status(201).json({ success: true });
+	} catch (error) {
+		console.error("Error tracking product activity:", error.message);
+		res.status(500).json({
+			message: "Error tracking product activity",
+		});
+	}
+};
+export const getRecommendedProducts = async (req, res) => {
+	try {
+		const cacheKey = `recommendations:v2:${req.user._id}`;
+
+		const cached = await redis.get(cacheKey);
+
+		if (cached) {
+			return res.status(200).json({
+				products: JSON.parse(cached),
+			});
+		}
+
+		const activities = await UserActivity.find({
+			user: req.user._id,
+		})
+			.sort({ createdAt: -1 })
+			.limit(30)
+			.populate("product")
+			.lean();
+
+		const excludedIds = activities
+			.filter(
+				(activity) =>
+					activity.product &&
+					(activity.type === "cart" ||
+						activity.type === "purchase")
+			)
+			.map((activity) => activity.product._id.toString());
+
+		const products = await Product.find({
+			_id: {
+				$nin: excludedIds,
+			},
+		})
+			.select(
+				"_id name description price image category isFeatured"
+			)
+			.lean();
+
+		console.log("Available products:", products.length);
+
+		if (!products.length) {
+			return res.status(200).json({
+				products: [],
+			});
+		}
+
+		if (!activities.length) {
+			const recommendations = products.slice(0, 5);
+
+			await redis.set(
+				cacheKey,
+				JSON.stringify(recommendations),
+				"EX",
+				3600
+			);
+
+			return res.status(200).json({
+				products: recommendations,
+			});
+		}
+
+		const userHistory = activities
+			.filter((activity) => activity.product)
+			.map((activity) => ({
+				name: activity.product.name,
+				category: activity.product.category,
+				price: activity.product.price,
+				type: activity.type,
+			}));
+
+		const availableProducts = products.map((product) => ({
+			id: product._id.toString(),
+			name: product.name,
+			description: product.description,
+			category: product.category,
+			price: product.price,
+		}));
+
+		const prompt = `
+You are an e-commerce recommendation engine.
+
+User activity:
+${JSON.stringify(userHistory)}
+
+Available products:
+${JSON.stringify(availableProducts)}
+
+Recommend up to 5 products based on the user's behavior.
+
+Rules:
+- Only recommend products from Available products.
+- Never recommend cart or purchased products.
+- Purchase is stronger than cart.
+- Cart is stronger than view.
+- Consider category, name, description and price.
+- Return only product IDs.
+
+Return JSON:
+{
+  "productIds": ["id1", "id2", "id3"]
+}
+`;
+
+		const response = await ai.models.generateContent({
+			model: "gemini-2.5-flash",
+			contents: prompt,
+			config: {
+				responseMimeType: "application/json",
+			},
+		});
+
+		console.log("Gemini:", response.text);
+
+		const result = JSON.parse(response.text);
+
+		const recommendedProducts = (result.productIds || [])
+			.map((id) =>
+				products.find(
+					(product) => product._id.toString() === id
+				)
+			)
+			.filter(Boolean)
+			.slice(0, 5);
+
+		const finalProducts =
+			recommendedProducts.length > 0
+				? recommendedProducts
+				: products.slice(0, 5);
+
+		await redis.set(
+			cacheKey,
+			JSON.stringify(finalProducts),
+			"EX",
+			3600
+		);
+
+		return res.status(200).json({
+			products: finalProducts,
+		});
+	} catch (error) {
+		console.error(
+			"Recommendation error:",
+			error.message
+		);
+
+		const products = await Product.find({})
+			.select(
+				"_id name description price image category isFeatured"
+			)
+			.limit(5)
+			.lean();
+
+		return res.status(200).json({
+			products,
+		});
+	}
+};
 export const getProductsByCategory = async (req, res) => {
     try {
         const category = req.params.category;

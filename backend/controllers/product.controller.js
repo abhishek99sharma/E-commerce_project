@@ -126,7 +126,7 @@ export const trackProductActivity = async (req, res) => {
 				type,
 			});
 
-			await redis.del(`recommendations:${req.user._id}`);
+			await redis.del(`recommendations:v2:${req.user._id}`);
 		}
 
 		res.status(201).json({ success: true });
